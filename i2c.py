@@ -94,22 +94,39 @@ class AtlasI2C:
 				pass
 		self.set_i2c_address(prev_addr) # restore the address we were using
 		return i2c_devices
-
+	
+class DB():
+	connection = none
+	
+	def __init__(self):
+		connect()
+				
+	def checkConn(self):
+	    sq = "SELECT NOW()"
+	    try:
+		connection.cursor.execute( sq )
+	    except pymysql.Error as e:
+		if e.errno == 2006:
+		    return self.connect()
+		else:
+		    print ( "No connection with database." )
+		    return False
+		
+	def connect(hostname="localhost", username="pi", userpass="raspberry", db="reefpi"):
+		connection = mysql.connector.connect(
+		  host=hostname,
+		  user=username,
+		  passwd=userpass,
+		  database=db
+		)
+		
 #start script in GNU screen using command: screen -dm bash -c 'python your_script.py'		
 def main():
 	#get aquarium id
 	aquariumid = os.environ['AQUARIUM_ID']
 	
 	#setup db
-	
-	mydb = mysql.connector.connect(
-	  host="localhost",
-	  user="yourusername",
-	  passwd="yourpassword",
-	  database="reefpi"
-	)
-	
-	mycursor = mydb.cursor()
+	db = DB()
 			
 	device = AtlasI2C() 	# creates the I2C port object, specify the address or bus if necessary
 	sensors = {}	# holds list of valid Atlas Scientific sensor types and their corresponding addresses as dict(type, address)
@@ -131,7 +148,14 @@ def main():
 			sensors.update({devicetype : int(devices[i])})
 			
 	try:
-		while True:										
+		while True:
+			
+			#keep db connection alive
+			if (db.checkConn()):
+				Print("DB is connected")
+			else:
+				Print("DB is not connected")
+			
 			#Do temp reading
 			tempaddress = sensors.get('RTD')
 			if (tempaddress is None):
@@ -148,8 +172,8 @@ def main():
 				sql = """INSERT INTO SENSOR_DATA (SENSOR_TYPE, SENSOR_ADDRESS, SENSOR_VALUE, AQUARIUM_ID) 
 				VALUES (%s, %d, %d, %d)"""
 				val = ("RTD", tempaddress, float(temperature), aquariumid)
-				mycursor.execute(sql, val)
-				mydb.commit()
+				db.connection.cursor.execute(sql, val)
+				db.connection.commit()
 				
 				#Do ph Reading
 				phaddress = sensors.get('pH')
@@ -166,8 +190,8 @@ def main():
 						sql = """INSERT INTO SENSOR_DATA (SENSOR_TYPE, SENSOR_ADDRESS, SENSOR_VALUE, AQUARIUM_ID) 
 						VALUES (%s, %d, %d, %d)"""
 						val = ("pH", phaddress, float(ph), aquariumid)
-						mycursor.execute(sql, val)
-						mydb.commit()					
+						db.connection.cursor.execute(sql, val)
+						db.connection.commit()					
 			time.sleep(3)	
 	except KeyboardInterrupt: 		# catches the ctrl-c command, which breaks the loop above
 		print("Continuous polling stopped")
