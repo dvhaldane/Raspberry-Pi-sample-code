@@ -94,10 +94,41 @@ class AtlasI2C:
 		self.set_i2c_address(prev_addr) # restore the address we were using
 		return i2c_devices
 
-		
+#start script in GNU screen using command: screen -dm bash -c 'python your_script.py'		
 def main():
 	device = AtlasI2C() 	# creates the I2C port object, specify the address or bus if necessary
-
+	sensors = []	# holds list of valid Atlas Scientific sensor types and their corresponding addresses as tuple(type, address)
+	valid_sensor_types = ["EZO","RTD"]
+	
+	#get all I2C devices and initialize them
+	devices = device.list_i2c_devices()
+	for i in range(len (devices)):
+		#set address of device
+		device.set_i2c_address(devices[i])
+		print("I2C address set to " + str(devices[i]))
+		
+		#get device type
+		devicetype = string.split(device.query("I"), ",")[1]
+		print("Device type is: " + devicetype)
+		
+		#if sensor is a valid Atlas Scientific device, add it to the list of sensors
+		if (devicetype in valid_sensor_types):
+			sensors.append(tuple(devicetype,devices[i]))		
+		
+	while True:
+		for i in range(len(sensors)):			
+			sensortype = i[0]
+			sensoraddress = i[1]
+			device.set_i2c_address(int(sensoraddress))
+			
+			if (i[0] is "EZO"):
+				#TODO - ph sensor commands
+			if (i[0] is "RTD"):
+				#TODO - temperature sensor commands
+				
+			#pause 5 seconds between readings
+			time.sleep(5)
+	#end custom
 	print(">> Atlas Scientific sample code")
 	print(">> Any commands entered are passed to the board via I2C except:")
 	print(">>   List_addr lists the available I2C addresses.")
@@ -111,11 +142,6 @@ def main():
 	# main loop
 	while True:
 		user_cmd = real_raw_input("Enter command: ")
-
-		if user_cmd.upper().startswith("LIST_ADDR"):
-			devices = device.list_i2c_devices()
-			for i in range(len (devices)):
-				print( devices[i])
 
 		# address command lets you change which address the Raspberry Pi will poll
 		elif user_cmd.upper().startswith("ADDRESS"):
