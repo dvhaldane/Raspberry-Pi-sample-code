@@ -6,7 +6,8 @@ import fcntl      # used to access I2C parameters like addresses
 
 import time       # used for sleep delay and timestamps
 import string     # helps parse strings
-
+import mysql.connector 
+import os	  #use os to get environment variable for aquarium
 
 class AtlasI2C:
 	long_timeout = 1.5         	# the timeout needed to query readings and calibrations
@@ -96,6 +97,20 @@ class AtlasI2C:
 
 #start script in GNU screen using command: screen -dm bash -c 'python your_script.py'		
 def main():
+	#get aquarium id
+	aquariumid = os.environ['AQUARIUM_ID']
+	
+	#setup db
+	
+	mydb = mysql.connector.connect(
+	  host="localhost",
+	  user="yourusername",
+	  passwd="yourpassword",
+	  database="reefpi"
+	)
+	
+	mycursor = mydb.cursor()
+			
 	device = AtlasI2C() 	# creates the I2C port object, specify the address or bus if necessary
 	sensors = {}	# holds list of valid Atlas Scientific sensor types and their corresponding addresses as dict(type, address)
 	valid_sensor_types = ["pH","RTD"]
@@ -129,12 +144,17 @@ def main():
 				print("Temperature reading has failed. " + temperature)
 				#TODO - warn that temperature reading has errored
 			else:
-				#TODO - send temperature to DB	
-
+				#send temperature to DB	
+				sql = """INSERT INTO SENSOR_DATA (SENSOR_TYPE, SENSOR_ADDRESS, SENSOR_VALUE, AQUARIUM_ID) 
+				VALUES (%s, %d, %d, %d)"""
+				val = ("RTD", tempaddress, float(temperature), aquariumid)
+				mycursor.execute(sql, val)
+				mydb.commit()
+				
 				#Do ph Reading
 				phaddress = sensors.get('pH')
 				#stop reading if no ph sensor available
-				if (tempaddress is None):
+				if (phaddress is None):
 					print("No ph sensor available. " + temperature)
 	       			else:
 					device.set_i2c_address(int(phaddress))
@@ -143,7 +163,11 @@ def main():
 					if ("ERR" in ph):
 						print("pH reading has failed. " + ph)
 					else:
-						#TODO - send ph to DB					
+						sql = """INSERT INTO SENSOR_DATA (SENSOR_TYPE, SENSOR_ADDRESS, SENSOR_VALUE, AQUARIUM_ID) 
+						VALUES (%s, %d, %d, %d)"""
+						val = ("pH", phaddress, float(ph), aquariumid)
+						mycursor.execute(sql, val)
+						mydb.commit()					
 			time.sleep(3)	
 	except KeyboardInterrupt: 		# catches the ctrl-c command, which breaks the loop above
 		print("Continuous polling stopped")
