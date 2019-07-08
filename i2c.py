@@ -49,18 +49,18 @@ class AtlasI2C:
 				# change MSB to 0 for all received characters except the first and get a list of characters
 				# NOTE: having to change the MSB to 0 is a glitch in the raspberry pi, and you shouldn't have to do this!
 				char_list = list(map(lambda x: chr(ord(x) & ~0x80), list(response[1:])))
-				return "Command succeeded " + ''.join(char_list)     # convert the char list to a string and returns it
+				return ''.join(char_list)     # convert the char list to a string and returns it
 			else:
-				return "Error " + str(ord(response[0]))
+				return "ERR " + str(ord(response[0]))
 				
 		else:									# if python3 read
 			if res[0] == 1: 
 				# change MSB to 0 for all received characters except the first and get a list of characters
 				# NOTE: having to change the MSB to 0 is a glitch in the raspberry pi, and you shouldn't have to do this!
 				char_list = list(map(lambda x: chr(x & ~0x80), list(res[1:])))
-				return "Command succeeded " + ''.join(char_list)     # convert the char list to a string and returns it
+				return ''.join(char_list)     # convert the char list to a string and returns it
 			else:
-				return "Error " + str(res[0])
+				return "ERR " + str(res[0])
 
 	def query(self, string):
 		# write a command to the board, wait the correct timeout, and read the response
@@ -97,10 +97,10 @@ class AtlasI2C:
 #start script in GNU screen using command: screen -dm bash -c 'python your_script.py'		
 def main():
 	device = AtlasI2C() 	# creates the I2C port object, specify the address or bus if necessary
-	sensors = []	# holds list of valid Atlas Scientific sensor types and their corresponding addresses as tuple(type, address)
-	valid_sensor_types = ["EZO","RTD"]
+	sensors = {}	# holds list of valid Atlas Scientific sensor types and their corresponding addresses as dict(type, address)
+	valid_sensor_types = ["pH","RTD"]
 	
-	#get all I2C devices and initialize them
+	#get all Atlas Scientific I2C devices
 	devices = device.list_i2c_devices()
 	for i in range(len (devices)):
 		#set address of device
@@ -109,77 +109,45 @@ def main():
 		
 		#get device type
 		devicetype = string.split(device.query("I"), ",")[1]
-		print("Device type is: " + devicetype)
+		print("Device type is: " + devicetype + " for address " + devices[i])
 		
 		#if sensor is a valid Atlas Scientific device, add it to the list of sensors
 		if (devicetype in valid_sensor_types):
-			sensors.append(tuple(devicetype,devices[i]))		
-		
-	while True:
-		for i in range(len(sensors)):			
-			sensortype = i[0]
-			sensoraddress = i[1]
-			device.set_i2c_address(int(sensoraddress))
+			sensors.update({devicetype : int(devices[i])})
 			
-			if (i[0] is "EZO"):
-				#TODO - ph sensor commands
-			if (i[0] is "RTD"):
-				#TODO - temperature sensor commands
-				
-			#pause 5 seconds between readings
-			time.sleep(5)
-	#end custom
-	print(">> Atlas Scientific sample code")
-	print(">> Any commands entered are passed to the board via I2C except:")
-	print(">>   List_addr lists the available I2C addresses.")
-	print(">>   Address,xx changes the I2C address the Raspberry Pi communicates with.")
-	print(">>   Poll,xx.x command continuously polls the board every xx.x seconds")
-	print(" where xx.x is longer than the %0.2f second timeout." % AtlasI2C.long_timeout)
-	print(">> Pressing ctrl-c will stop the polling")
-	
-	real_raw_input = vars(__builtins__).get('raw_input', input)
-	
-	# main loop
-	while True:
-		user_cmd = real_raw_input("Enter command: ")
-
-		# address command lets you change which address the Raspberry Pi will poll
-		elif user_cmd.upper().startswith("ADDRESS"):
-			addr = int(user_cmd.split(',')[1])
-			device.set_i2c_address(addr)
-			print("I2C address set to " + str(addr))
-
-		# continuous polling command automatically polls the board
-		elif user_cmd.upper().startswith("POLL"):
-			delaytime = float(string.split(user_cmd, ',')[1])
-
-			# check for polling time being too short, change it to the minimum timeout if too short
-			if delaytime < AtlasI2C.long_timeout:
-				print("Polling time is shorter than timeout, setting polling time to %0.2f" % AtlasI2C.long_timeout)
-				delaytime = AtlasI2C.long_timeout
-
-			# get the information of the board you're polling
-			info = string.split(device.query("I"), ",")[1]
-			print("Polling %s sensor every %0.2f seconds, press ctrl-c to stop polling" % (info, delaytime))
-
-			try:
-				while True:
-					print(device.query("R"))
-					time.sleep(delaytime - AtlasI2C.long_timeout)
-			except KeyboardInterrupt: 		# catches the ctrl-c command, which breaks the loop above
-				print("Continuous polling stopped")
-
-		# if not a special keyword, pass commands straight to board
-		else:
-			if len(user_cmd) == 0:
-				print( "Please input valid command.")
+	try:
+		while True:										
+			#Do temp reading
+			tempaddress = sensors.get('RTD')
+			if (tempaddress is None):
+				print("No temperature sensor available. " + temperature)
+				break
+			device.set_i2c_address(int(tempaddress))
+			temperature = device.query("R")
+			
+			if ("ERR" in temperature):
+				print("Temperature reading has failed. " + temperature)
+				#TODO - warn that temperature reading has errored
 			else:
-				try:
-					print(device.query(user_cmd))
-				except IOError:
-					print("Query failed \n - Address may be invalid, use List_addr command to see available addresses")
+				#TODO - send temperature to DB	
 
+				#Do ph Reading
+				phaddress = sensors.get('pH')
+				#stop reading if no ph sensor available
+				if (tempaddress is None):
+					print("No ph sensor available. " + temperature)
+	       			else:
+					device.set_i2c_address(int(phaddress))
+					ph = device.query("RT," + str(temperature))
 
+					if ("ERR" in ph):
+						print("pH reading has failed. " + ph)
+					else:
+						#TODO - send ph to DB					
+			time.sleep(3)	
+	except KeyboardInterrupt: 		# catches the ctrl-c command, which breaks the loop above
+		print("Continuous polling stopped")
+			
 if __name__ == '__main__':
 	main()
 
