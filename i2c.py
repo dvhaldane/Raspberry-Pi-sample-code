@@ -96,28 +96,35 @@ class AtlasI2C:
 		return i2c_devices
 	
 class DB():
-	connection = none
+	connection = None
 	
 	def __init__(self):
-		connect()
+		self.connect()
 				
 	def checkConn(self):
-	    sq = "SELECT NOW()"
-	    try:
-		connection.cursor.execute( sq )
-	    except pymysql.Error as e:
-		if e.errno == 2006:
-		    return self.connect()
+		if self.connection is None:
+			self.connect()
+			return True
 		else:
-		    print ( "No connection with database." )
-		    return False
+			sq = "SELECT NOW()"
+			try:
+				self.connection.cursor().execute( sq )
+				return True
+			except mysql.connector.Error as e:
+				if e.errno == 2006:
+					self.connect()
+					return True
+				else:
+					print ( "No connection with database." )
+					return False
 		
-	def connect(hostname="localhost", username="pi", userpass="raspberry", db="reefpi"):
-		connection = mysql.connector.connect(
-		  host=hostname,
-		  user=username,
-		  passwd=userpass,
-		  database=db
+	def connect(self):
+		self.connection = mysql.connector.connect(
+	      buffered=True,
+		  host="localhost",
+		  user="pi",
+		  passwd="@@rdv4rK",
+		  database="reefpi"
 		)
 		
 #start script in GNU screen using command: screen -dm bash -c 'python your_script.py'		
@@ -141,7 +148,7 @@ def main():
 		
 		#get device type
 		devicetype = string.split(device.query("I"), ",")[1]
-		print("Device type is: " + devicetype + " for address " + devices[i])
+		print("Device type is: " + devicetype + " for address " + str(devices[i]))
 		
 		#if sensor is a valid Atlas Scientific device, add it to the list of sensors
 		if (devicetype in valid_sensor_types):
@@ -151,48 +158,48 @@ def main():
 		while True:
 			
 			#keep db connection alive
-			if (db.checkConn()):
-				Print("DB is connected")
-			else:
-				Print("DB is not connected")
-			
-			#Do temp reading
-			tempaddress = sensors.get('RTD')
-			if (tempaddress is None):
-				print("No temperature sensor available. " + temperature)
-				break
-			device.set_i2c_address(int(tempaddress))
-			temperature = device.query("R")
-			
-			if ("ERR" in temperature):
-				print("Temperature reading has failed. " + temperature)
-				#TODO - warn that temperature reading has errored
-			else:
-				#send temperature to DB	
-				sql = """INSERT INTO SENSOR_DATA (SENSOR_TYPE, SENSOR_ADDRESS, SENSOR_VALUE, AQUARIUM_ID) 
-				VALUES (%s, %d, %d, %d)"""
-				val = ("RTD", tempaddress, float(temperature), aquariumid)
-				db.connection.cursor.execute(sql, val)
-				db.connection.commit()
-				
-				#Do ph Reading
-				phaddress = sensors.get('pH')
-				#stop reading if no ph sensor available
-				if (phaddress is None):
-					print("No ph sensor available. " + temperature)
-	       			else:
-					device.set_i2c_address(int(phaddress))
-					ph = device.query("RT," + str(temperature))
-
-					if ("ERR" in ph):
-						print("pH reading has failed. " + ph)
+			if (db.checkConn() is True):			
+				#Do temp reading
+				tempaddress = sensors.get('RTD')
+				if (tempaddress is None):
+					print("No temperature sensor available. " + temperature)
+					break
+				device.set_i2c_address(int(tempaddress))
+				temperature = device.query("R")
+				if ("ERR" in temperature):
+					print("Temperature reading has failed. " + temperature)
+					#TODO - warn that temperature reading has errored
+				elif (float(temperature) == -1809.4):
+					print("Temperature probe is disconnected.")
+				else:
+					#send temperature to DB	
+					sql = """INSERT INTO SENSOR_DATA (SENSOR_TYPE, SENSOR_ADDRESS, SENSOR_VALUE, AQUARIUM_ID) 
+					VALUES (%s, %s, %s, %s)"""
+					val = ('RTD', tempaddress, float(temperature), aquariumid)
+					db.connection.cursor().execute(sql, val)
+					db.connection.commit()
+					
+					#Do ph Reading
+					phaddress = sensors.get('pH')
+					#stop reading if no ph sensor available
+					if (phaddress is None):
+						print("No ph sensor available. " + temperature)
 					else:
-						sql = """INSERT INTO SENSOR_DATA (SENSOR_TYPE, SENSOR_ADDRESS, SENSOR_VALUE, AQUARIUM_ID) 
-						VALUES (%s, %d, %d, %d)"""
-						val = ("pH", phaddress, float(ph), aquariumid)
-						db.connection.cursor.execute(sql, val)
-						db.connection.commit()					
-			time.sleep(3)	
+						device.set_i2c_address(int(phaddress))
+						ph = device.query("RT," + str(temperature))
+
+						if ("ERR" in ph):
+							print("pH reading has failed. " + ph)
+						else:
+							sql = """INSERT INTO SENSOR_DATA (SENSOR_TYPE, SENSOR_ADDRESS, SENSOR_VALUE, AQUARIUM_ID) 
+							VALUES (%s, %s, %s, %s)"""
+							val = ("pH", phaddress, float(ph), aquariumid)
+							db.connection.cursor().execute(sql, val)
+							db.connection.commit()					
+				time.sleep(7)
+			else:
+				print("Unable to establish connection with database")
+				time.sleep(10)
 	except KeyboardInterrupt: 		# catches the ctrl-c command, which breaks the loop above
 		print("Continuous polling stopped")
 			
